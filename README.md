@@ -1,0 +1,188 @@
+# oligosim
+
+A forward process model for solid-phase oligonucleotide synthesis. Given a
+sequence, its modification pattern, and process conditions, it predicts the
+**distribution of species** in the crude product — not just a yield number.
+
+> **Status: v0.1.** The synthesis engine is implemented and tested. Kinetic
+> parameters are placeholders, not calibrated values. See
+> [Parameter status](#parameter-status) before using any output quantitatively.
+
+## The problem
+
+The standard estimate of oligonucleotide synthesis yield is
+
+```
+full-length fraction = (coupling efficiency) ** (n - 1)
+```
+
+This is a scalar, and it answers only one question. It cannot tell you *which*
+impurities you have, so it cannot tell you whether they will separate — which
+is the question that actually determines whether a batch meets spec.
+
+Two crude mixtures with identical 87% full-length content can behave completely
+differently downstream. If the missing 13% is short truncations, purification is
+routine. If it is n−1 deletion sequences, it is hard, because a chain missing
+one internal residue co-elutes closely with product.
+
+`oligosim` propagates the support-bound population cycle by cycle and resolves
+it by failure pattern, so truncations and deletions are distinguished and
+attributed to the cycle that produced them.
+
+## The mechanism
+
+Per cycle *i*:
+
+1. **Detritylation** exposes the 5'-OH of every active chain.
+2. **Coupling** extends a fraction `c_i`. The rest keep a free 5'-OH.
+3. **Capping** acetylates a fraction `k_i` of those failures, removing them
+   permanently as **truncations**.
+4. Failures that **escape capping** stay active and couple in a later cycle,
+   becoming **deletion sequences** — full-length-minus-one, missing an internal
+   residue.
+
+Step 4 is why capping exists. Capping does not improve yield; the full-length
+fraction is `prod(c_i)` regardless of capping efficiency. What capping does is
+convert would-be deletions into truncations, trading a hard separation problem
+for an easy one. The model reproduces this exactly, and it is enforced as a
+test invariant.
+
+## Quick start
+
+```python
+from oligosim import Oligo, ProcessConditions, Sugar, Linkage, simulate
+
+# Nusinersen: 18-mer, uniform 2'-O-MOE, full phosphorothioate, 5-methyl-C.
+oligo = Oligo.from_string(
+    "TmCAmCTTTmCATAATGmCTGG", sugar=Sugar.MOE, linkage=Linkage.PS
+)
+
+result = simulate(
+    oligo,
+    ProcessConditions(
+        coupling_efficiency=0.992,
+        capping_efficiency=0.95,
+        sulfurization_efficiency=0.995,
+    ),
+)
+print(result.summary())
+```
+
+```
+Oligo            : TCACTTTCATAATGCTGG [2'-MOE, PS]  (n=18)
+Couplings        : 17
+
+Full-length (FLP): 87.2365%
+  naive c^(n-1)  : 87.2365%
+Deletions        :  0.5999%
+Truncations      : 12.1635%
+Mass balance     :  1.0000000000
+
+PS linkages      : 17
+Fully sulfurized : 91.8316%
+E[PO mismatches] :  0.0850
+```
+
+Attribute impurity to the cycle that caused it:
+
+```python
+result.deletions_by_position()   # {2: 0.000352, 3: 0.000352, ...}
+```
+
+Mixed chemistry is supported per position — gapmers, siRNA strands, chimeras:
+
+```python
+sugars = [Sugar.MOE] * 5 + [Sugar.DNA] * 10 + [Sugar.MOE] * 5
+gapmer = Oligo.from_string("A" * 20, sugar=sugars, linkage=Linkage.PS)
+```
+
+## Design notes
+
+**Modification-aware from the start.** Therapeutic oligos are essentially never
+plain DNA, so `Residue` carries base, 2' sugar and 3' linkage. A model built on
+ACGT strings has to be rewritten the moment it meets a real drug substance.
+
+**State space.** Species are keyed by the set of skipped positions. Exact
+tracking to `max_deletions` (default 3); anything beyond is reported as
+`unresolved_fraction` rather than silently dropped, so mass balance always
+closes to 1.0. For a 20-mer at `max_deletions=3` that is 1160 states and runs in
+milliseconds.
+
+**Masses are computed, not tabulated**, from elemental composition, so they are
+independently checkable. The 3'-terminal residue contributes a *nucleoside*
+mass — after cleavage from support it has a free 3'-OH — so an n-mer carries
+n−1 phosphates. Getting this wrong adds a spurious HPO₃ to every mass, and the
+test suite pins it.
+
+**Validation.** The nusinersen monoisotopic mass is checked end-to-end against
+C₂₃₄H₃₄₀N₆₁O₁₂₈P₁₇S₁₇, derived from nucleoside composition. As a cross-check,
+the same formula gives an average MW of 7127.2 for the free acid and 7500.9 for
+the 17-fold sodium salt, matching the cited value for nusinersen sodium.
+
+## Parameter status
+
+**None of the kinetic parameters in this repository are calibrated.** Defaults
+are plausible round numbers; the sugar reactivity factors are ordinal
+placeholders encoding a documented qualitative ordering (bulky 2' substituents
+and bridged sugars couple more slowly than DNA) and are disabled by default.
+
+Use the model for **sensitivity analysis** — how does crude purity respond to a
+range of coupling efficiency? — rather than point prediction, until the
+parameters are replaced with literature values.
+
+Every parameter added to this repository must carry a public citation. No
+vendor certificates of analysis, batch records, or other data obtained under a
+commercial relationship, regardless of how routine the document is. A model
+whose provenance cannot be stated is a model that cannot be shown to anyone.
+
+## Prior art
+
+This is not a novel modelling approach. It is, as far as I can find, the first
+open implementation, and the first to connect the stages end to end.
+
+- **Synthesis kinetics.** *Kinetic Modeling of Solid-Phase Oligonucleotide
+  Synthesis: Mechanistic Insights and Reaction Dynamics*, Org. Process Res.
+  Dev. 2025, 29(9), 2298–2309. A mechanistic kinetic treatment of coupling,
+  capping, oxidation and detritylation. Not available as code.
+- **Error propagation.** Earlier work relating constant coupling and capping
+  efficiencies to the product length distribution.
+- **Purification.** Mechanistic ion-exchange models predicting purity and yield
+  in collected fractions, including N−1 and N+1 content. Commercial software.
+- **Scale-up.** CFD treatment of packed-bed synthesis reactors, Biotechnol.
+  Prog. 2014.
+
+The gap this fills: those exist as separate closed silos. Nothing connects raw
+material specification → synthesis → purification → cost of goods in one open
+model, and none of them treat **amidite quality attributes** as inputs.
+
+## Roadmap
+
+| Version | Scope |
+|---|---|
+| **v0.1** | Positional failure propagation; modification-aware chemistry; mass assignment. ✅ |
+| v0.2 | Depurination, n+1 insertions, cleavage/deprotection losses. Joint sulfurization state. |
+| v0.3 | Full predicted mass spectrum with isotope envelopes. |
+| v0.4 | Chromatography: retention model, resolution, pool cut points, purity/yield trade-off curve. |
+| v0.5 | `amidite` module — derive per-cycle coupling efficiency from water content, ³¹P purity, free acid, related substances, activator and excess. Inverts into spec setting. |
+| v0.6 | Cost of goods: amidite consumption, solvent volume, waste, scale. |
+
+v0.5 is the point of the project. Everything before it is the substrate that
+makes the question answerable:
+
+> *What amidite specification do I need to hit 95% crude purity on a 20-mer
+> gapmer?*
+
+## Install
+
+```bash
+git clone <repo>
+cd oligosim
+pip install -e ".[dev]"
+pytest
+```
+
+Pure Python, standard library only. `pytest` for tests.
+
+## Licence
+
+MIT.
