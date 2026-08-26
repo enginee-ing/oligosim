@@ -119,6 +119,34 @@ C₂₃₄H₃₄₀N₆₁O₁₂₈P₁₇S₁₇, derived from nucleoside com
 the same formula gives an average MW of 7127.2 for the free acid and 7500.9 for
 the 17-fold sodium salt, matching the cited value for nusinersen sodium.
 
+## Known gap: this model is optimistic
+
+For an 18-mer 2'-OMe phosphorothioate oligonucleotide, published work on
+membrane-enabled liquid-phase synthesis reports crude purity around **72%**.
+This model predicts about **87%** full-length at 99.2% coupling.
+
+The ~15 point difference is not a bug. It is the set of impurity classes v0.1
+does not yet model:
+
+| Missing | Effect |
+|---|---|
+| PO-for-PS mismatches | Computed as an independent marginal, not folded into the population. At 99.5% sulfurization over 17 PS linkages, only ~92% of chains are fully sulfurized. |
+| Depurination | Acid-catalysed, dA-dominated, accumulates with cycle count. |
+| Cyanoethyl adducts | Acrylonitrile released during deprotection is a Michael acceptor; adducts form preferentially on thymine. |
+| n+1 insertions | From premature detritylation. |
+| Cleavage/deprotection losses | Not modelled. |
+
+Folding the sulfurization state into the joint population is the largest single
+contributor and is the first item in v0.2.
+
+## Notebooks
+
+[`notebooks/01_sensitivity_analysis.ipynb`](notebooks/01_sensitivity_analysis.ipynb)
+— what the impurity profile depends on. Coupling efficiency, length, capping, and
+per-cycle attribution, with the charts rendered inline. The capping result is the
+one worth reading: full-length product is flat at 87.237% across the entire
+capping range while deletions and truncations trade off perfectly.
+
 ## Parameter status
 
 **None of the kinetic parameters in this repository are calibrated.** Defaults
