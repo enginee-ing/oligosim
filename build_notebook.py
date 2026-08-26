@@ -70,7 +70,7 @@ flp, dele, trunc = [], [], []
 for c in couplings:
     r = simulate(NUSINERSEN, ProcessConditions(coupling_efficiency=c,
                                                capping_efficiency=0.95))
-    flp.append(r.full_length_fraction * 100)
+    flp.append(r.correct_product_fraction * 100)
     dele.append(r.deletion_fraction * 100)
     trunc.append(r.truncation_fraction * 100)
 
@@ -78,8 +78,8 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
 
 ax1.plot(couplings * 100, flp, lw=2, color="#1b5e20")
 ax1.set_xlabel("stepwise coupling efficiency (%)")
-ax1.set_ylabel("full-length product (%)")
-ax1.set_title("Full-length product, 18-mer")
+ax1.set_ylabel("correct product (%)")
+ax1.set_title("Correct product, 18-mer")
 
 ax2.plot(couplings * 100, trunc, lw=2, label="truncations", color="#1565c0")
 ax2.plot(couplings * 100, dele, lw=2, label="deletions", color="#c62828")
@@ -94,11 +94,11 @@ plt.show()
 for c in (0.980, 0.990, 0.992, 0.995, 0.999):
     r = simulate(NUSINERSEN, ProcessConditions(coupling_efficiency=c,
                                                capping_efficiency=0.95))
-    print(f"c={c:.3f}   FLP={r.full_length_fraction:7.2%}   "
+    print(f"c={c:.3f}   FLP={r.correct_product_fraction:7.2%}   "
           f"deletions={r.deletion_fraction:6.2%}   "
           f"truncations={r.truncation_fraction:7.2%}")""")
 
-md("""Dropping from 99.5% to 98.0% coupling costs about 21 points of full-length
+md("""Dropping from 99.5% to 98.0% coupling costs about 19 points of correct
 product on an 18-mer. That is the well-known part.
 
 The right-hand panel is the part the scalar estimate hides. Truncations dominate
@@ -166,9 +166,11 @@ md("""## 3. Capping: the result worth looking at twice
 Capping acetylates chains that failed to couple, removing them from the growing
 population permanently. It is easy to assume this improves yield. It does not.
 
-A chain is full-length only if it coupled successfully on *every* cycle. Capping
-acts on chains that already failed. So the full-length fraction is $\\prod c_i$
-regardless of how well capping works.
+A chain is full-length only if it coupled successfully on *every* cycle, and
+capping acts on chains that already failed to couple — it never touches a
+linkage that already formed. So both the full-length fraction ($\\prod c_i$)
+and the correct-product fraction ($\\prod c_i \\cdot s^{\\,n_\\text{ps}}$, folding
+in sulfurization) are independent of capping efficiency.
 
 What capping changes is what the failures *become*:
 
@@ -186,12 +188,12 @@ for k in cappings:
     r = simulate(NUSINERSEN,
                  ProcessConditions(coupling_efficiency=0.992, capping_efficiency=k),
                  max_deletions=6)
-    flp_k.append(r.full_length_fraction * 100)
+    flp_k.append(r.correct_product_fraction * 100)
     del_k.append(r.deletion_fraction * 100)
     trunc_k.append(r.truncation_fraction * 100)
 
 fig, ax = plt.subplots()
-ax.plot(cappings * 100, flp_k, lw=2.5, color="#1b5e20", label="full-length product")
+ax.plot(cappings * 100, flp_k, lw=2.5, color="#1b5e20", label="correct product")
 ax.plot(cappings * 100, del_k, lw=2, color="#c62828", label="deletions (hard to remove)")
 ax.plot(cappings * 100, trunc_k, lw=2, color="#1565c0", label="truncations (easy to remove)")
 ax.set_xlabel("capping efficiency (%)")
@@ -206,14 +208,15 @@ for k in (0.0, 0.5, 0.8, 0.95, 1.0):
     r = simulate(NUSINERSEN,
                  ProcessConditions(coupling_efficiency=0.992, capping_efficiency=k),
                  max_deletions=6)
-    print(f"capping={k:.2f}   FLP={r.full_length_fraction:8.4%}   "
+    print(f"capping={k:.2f}   FLP={r.correct_product_fraction:8.4%}   "
           f"deletions={r.deletion_fraction:7.4%}   "
           f"truncations={r.truncation_fraction:8.4%}")""")
 
-md("""The full-length line is flat at 87.237% across the entire sweep — not
-approximately flat, exactly flat. Meanwhile deletions fall from 12.763% to zero
-and truncations rise from zero to 12.763%. The impurity is conserved and simply
-moves between classes.
+md("""The correct-product line is flat at 80.111% across the entire sweep — not
+approximately flat, exactly flat, because neither coupling nor sulfurization
+outcomes depend on capping. Meanwhile deletions fall from 12.763% to zero and
+truncations rise from zero to 12.763%. The impurity is conserved and simply
+moves between classes — capping just decides which class it lands in.
 
 This is enforced as a test invariant in the package, because any bug in the
 population bookkeeping would break it.
@@ -273,20 +276,20 @@ The predictions above are optimistic, and it is worth being explicit about by ho
 much and why.
 
 For an 18-mer 2'-OMe phosphorothioate oligonucleotide, published work on
-membrane-enabled liquid-phase synthesis reports crude purity around **72%**. This
-model predicts about **87%** full-length at 99.2% coupling. The ~15 point gap is
-not a bug — it is the set of impurity classes v0.1 does not model:
+membrane-enabled liquid-phase synthesis reports crude purity around **72%**.
+This model predicts **80.1%** correct product (right length *and* correctly
+sulfurized backbone) at 99.2% coupling — down from the 87.2% you'd get by
+checking length alone, since a genuinely correct molecule needs both.
+Folding PO-for-PS sulfurization shortfall into the joint population state
+closed roughly half the ~15 point gap to the published figure. What remains,
+~8 points, is the set of impurity classes still not modelled:
 
 | Missing | Why it matters |
 |---|---|
-| PO-for-PS mismatches | Computed here as an independent marginal, not folded into the population. For 17 PS linkages at 99.5% sulfurization, only ~92% of chains are fully sulfurized. |
 | Depurination | Acid-catalysed, dA-dominated, accumulates with cycle count. |
 | Cyanoethyl adducts | Acrylonitrile released during deprotection is a Michael acceptor; adducts form preferentially on thymine. |
 | n+1 insertions | From premature detritylation of the incoming amidite. |
 | Cleavage/deprotection losses | Not modelled at all. |
-
-Folding the sulfurization state into the joint population is the single largest
-of these and is the first item in v0.2.
 
 **Every kinetic parameter used above is a placeholder**, not a calibrated value.
 Read these curves for their *shape* — the steepness of the coupling dependence,
@@ -300,7 +303,7 @@ nb.metadata["kernelspec"] = {
 }
 nb.metadata["language_info"] = {"name": "python", "version": "3.12"}
 
-with open("notebooks/01_sensitivity_analysis.ipynb", "w") as f:
+with open("notebooks/01_sensitivity_analysis.ipynb", "w", encoding="utf-8") as f:
     nbf.write(nb, f)
 
 print(f"wrote notebook with {len(cells)} cells")
