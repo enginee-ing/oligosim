@@ -200,7 +200,11 @@ def test_truncation_lengths_are_physical():
 def test_species_masses_agree_with_lengths():
     oligo = Oligo.from_string("ACGTACGT", sugar=Sugar.OME, linkage=Linkage.PS)
     result = simulate(oligo)
-    flp = next(s for s in result.species if not s.deleted and not s.truncated)
+    flp = next(
+        s
+        for s in result.species
+        if not s.deleted and not s.truncated and s.mismatches == 0
+    )
     assert flp.mass == pytest.approx(oligo.mass(), abs=TOL)
     for s in result.species:
         assert s.mass < oligo.mass() + TOL
@@ -247,17 +251,71 @@ def test_ps_linkage_count_excludes_support_position():
 
 
 def test_po_mismatch_distribution_is_a_binomial():
-    oligo = Oligo.from_string("ACGTACGT", linkage=Linkage.PS)
-    result = simulate(oligo, ProcessConditions(sulfurization_efficiency=0.99))
-    dist = result.po_mismatch_distribution(max_mismatches=7)
+    """With coupling certain and few enough PS linkages to stay within the
+    mismatch cap, the joint-derived distribution is an exact binomial."""
+    oligo = Oligo.from_string("ACGT", linkage=Linkage.PS)  # n_ps = 3, at the cap
+    s = 0.99
+    result = simulate(
+        oligo, ProcessConditions(coupling_efficiency=1.0, sulfurization_efficiency=s)
+    )
+    dist = result.po_mismatch_distribution()
+    n_ps = 3
     assert sum(dist.values()) == pytest.approx(1.0, abs=1e-12)
-    assert dist[0] == pytest.approx(result.fully_sulfurized_fraction, abs=TOL)
+    for k in range(n_ps + 1):
+        expected = math.comb(n_ps, k) * ((1 - s) ** k) * (s ** (n_ps - k))
+        assert dist[k] == pytest.approx(expected, abs=1e-12)
 
 
 def test_no_ps_linkages_when_all_po():
     oligo = Oligo.from_string("ACGT", linkage=Linkage.PO)
     result = simulate(oligo)
-    assert result.expected_po_mismatches == 0.0
+    dist = result.po_mismatch_distribution()
+    assert set(dist) == {0}
+    assert dist[0] == pytest.approx(1.0, abs=1e-12)
+
+
+def test_full_length_fraction_ignores_mismatches():
+    """A chain is full-length by virtue of length, regardless of PS/PO
+    backbone composition -- mismatches split the FLP population but don't
+    remove it. Uses n_ps == the mismatch cap so overflow can't muddy it.
+    """
+    oligo = Oligo.from_string("ACGT", linkage=Linkage.PS)  # n_ps = 3, at the cap
+    result = simulate(
+        oligo, ProcessConditions(coupling_efficiency=1.0, sulfurization_efficiency=0.9)
+    )
+    assert result.full_length_fraction == pytest.approx(1.0, abs=1e-12)
+    # ...but is actually split across several mismatch counts.
+    mismatch_counts = {s.mismatches for s in result.species if not s.truncated}
+    assert len(mismatch_counts) > 1
+
+
+def test_mismatch_overflow_is_reported_not_dropped():
+    oligo = Oligo.from_string("A" * 12, linkage=Linkage.PS)  # 11 PS linkages
+    result = simulate(
+        oligo,
+        ProcessConditions(coupling_efficiency=1.0, sulfurization_efficiency=0.9),
+        max_mismatches=3,
+    )
+    assert result.unresolved_fraction > 0.0
+    assert result.mass_balance == pytest.approx(1.0, abs=1e-12)
+
+
+def test_correct_product_fraction_matches_closed_form_when_cap_not_binding():
+    """With max_mismatches set to n_ps, the cap can never bind (the most
+    mismatches any chain can carry equals n_ps), so the fully-correct-
+    molecule fraction is exactly the closed-form product of the per-cycle
+    coupling probability and the per-linkage sulfurization probability."""
+    n, c, s = 10, 0.99, 0.995
+    oligo = Oligo.from_string("A" * n, linkage=Linkage.PS)
+    n_ps = n - 1
+    result = simulate(
+        oligo,
+        ProcessConditions(coupling_efficiency=c, sulfurization_efficiency=s),
+        max_mismatches=n_ps,
+    )
+    expected = c ** (n - 1) * s**n_ps
+    assert result.correct_product_fraction == pytest.approx(expected, abs=1e-12)
+    assert result.fully_sulfurized_fraction == pytest.approx(s**n_ps, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------

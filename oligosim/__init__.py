@@ -13,7 +13,7 @@ from .chemistry import Base, Linkage, Oligo, Residue, Sugar
 from .conditions import ProcessConditions
 from .synthesis import Species, SynthesisResult, simulate, state_space_size
 
-__version__ = "0.1.0"
+__version__ = "0.2.0.dev0"
 
 __all__ = [
     "Base",

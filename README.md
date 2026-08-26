@@ -4,8 +4,9 @@ A forward process model for solid-phase oligonucleotide synthesis. Given a
 sequence, its modification pattern, and process conditions, it predicts the
 **distribution of species** in the crude product — not just a yield number.
 
-> **Status: v0.1.** The synthesis engine is implemented and tested. Kinetic
-> parameters are placeholders, not calibrated values. See
+> **Status: v0.2.dev0.** v0.1's engine is implemented and tested; the joint
+> sulfurization state, the first v0.2 item, has landed ahead of the rest of
+> v0.2. Kinetic parameters are placeholders, not calibrated values. See
 > [Parameter status](#parameter-status) before using any output quantitatively.
 
 ## The problem
@@ -72,15 +73,15 @@ print(result.summary())
 Oligo            : TCACTTTCATAATGCTGG [2'-MOE, PS]  (n=18)
 Couplings        : 17
 
-Full-length (FLP): 87.2365%
+Full-length (FLP): 87.2364%
   naive c^(n-1)  : 87.2365%
 Deletions        :  0.5999%
 Truncations      : 12.1635%
 Mass balance     :  1.0000000000
 
 PS linkages      : 17
-Fully sulfurized : 91.8316%
-E[PO mismatches] :  0.0850
+Fully sulfurized : 92.3643%
+E[PO mismatches] :  0.0794  (resolved to 3)
 ```
 
 Attribute impurity to the cycle that caused it:
@@ -102,11 +103,14 @@ gapmer = Oligo.from_string("A" * 20, sugar=sugars, linkage=Linkage.PS)
 plain DNA, so `Residue` carries base, 2' sugar and 3' linkage. A model built on
 ACGT strings has to be rewritten the moment it meets a real drug substance.
 
-**State space.** Species are keyed by the set of skipped positions. Exact
-tracking to `max_deletions` (default 3); anything beyond is reported as
+**State space.** Species are keyed by the set of skipped positions and the
+count of PO-for-PS sulfurization mismatches — not which linkages mismatched,
+since count (not position) is what drives charge and hydrophobicity, and
+therefore chromatographic behaviour. Exact tracking to `max_deletions` and
+`max_mismatches` (both default 3); anything beyond either cap is reported as
 `unresolved_fraction` rather than silently dropped, so mass balance always
-closes to 1.0. For a 20-mer at `max_deletions=3` that is 1160 states and runs in
-milliseconds.
+closes to 1.0. For a 20-mer at `max_deletions=3` that is 1160 deletion states,
+further multiplied by up to 4 mismatch states, and runs in milliseconds.
 
 **Masses are computed, not tabulated**, from elemental composition, so they are
 independently checkable. The 3'-terminal residue contributes a *nucleoside*
@@ -125,19 +129,20 @@ For an 18-mer 2'-OMe phosphorothioate oligonucleotide, published work on
 membrane-enabled liquid-phase synthesis reports crude purity around **72%**.
 This model predicts about **87%** full-length at 99.2% coupling.
 
-The ~15 point difference is not a bug. It is the set of impurity classes v0.1
-does not yet model:
+The ~15 point difference is not a bug. It is the set of impurity classes not
+yet modelled:
 
 | Missing | Effect |
 |---|---|
-| PO-for-PS mismatches | Computed as an independent marginal, not folded into the population. At 99.5% sulfurization over 17 PS linkages, only ~92% of chains are fully sulfurized. |
 | Depurination | Acid-catalysed, dA-dominated, accumulates with cycle count. |
 | Cyanoethyl adducts | Acrylonitrile released during deprotection is a Michael acceptor; adducts form preferentially on thymine. |
 | n+1 insertions | From premature detritylation. |
 | Cleavage/deprotection losses | Not modelled. |
 
-Folding the sulfurization state into the joint population is the largest single
-contributor and is the first item in v0.2.
+PO-for-PS sulfurization shortfall is folded into the joint population (species
+carry a mismatch count alongside their deletion state), so it is no longer on
+this list — at 99.5% sulfurization over 17 PS linkages, ~92% of chains are
+fully sulfurized.
 
 ## Notebooks
 
@@ -188,7 +193,7 @@ model, and none of them treat **amidite quality attributes** as inputs.
 | Version | Scope |
 |---|---|
 | **v0.1** | Positional failure propagation; modification-aware chemistry; mass assignment. ✅ |
-| v0.2 | Depurination, n+1 insertions, cleavage/deprotection losses. Joint sulfurization state. |
+| v0.2 | Joint sulfurization state ✅. Depurination, n+1 insertions, cleavage/deprotection losses still open. 🚧 |
 | v0.3 | Full predicted mass spectrum with isotope envelopes. |
 | v0.4 | Chromatography: retention model, resolution, pool cut points, purity/yield trade-off curve. |
 | v0.5 | `amidite` module — derive per-cycle coupling efficiency from water content, ³¹P purity, free acid, related substances, activator and excess. Inverts into spec setting. |

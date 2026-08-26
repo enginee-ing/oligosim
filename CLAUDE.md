@@ -11,9 +11,11 @@ deletions attributed to the cycle that caused them) rather than a single yield
 scalar. Pure Python, standard library only for the core package; `numpy`/`matplotlib`/
 `jupyter` are notebook-only extras.
 
-Status: v0.1. The synthesis engine is implemented and tested, but **no kinetic
-parameter in this repository is calibrated** — see "Parameter status" below
-before changing or adding any default value.
+Status: v0.2.dev0. v0.1's engine is implemented and tested; the joint
+sulfurization state (v0.2's first item) has landed, the rest of v0.2
+(depurination, n+1 insertions, cleavage/deprotection losses) is still open.
+**No kinetic parameter in this repository is calibrated** — see "Parameter
+status" below before changing or adding any default value.
 
 ## Commands
 
@@ -51,12 +53,17 @@ cycles actually run in. `Oligo.sequence_5to3` / `Oligo.from_string` give the
 human-facing 5'→3' view. Don't conflate the two orderings when touching
 `chemistry.py` or `synthesis.py`.
 
-**State space is species keyed by skipped positions.** `simulate()` tracks
-`frozenset[int]` (deleted positions) → mole fraction, exactly up to
-`max_deletions` (default 3). Anything beyond that is summed into
-`unresolved_fraction` rather than dropped, so `mass_balance` (species fractions
-+ unresolved) always closes to 1.0. Any change to the population bookkeeping
-must preserve this invariant.
+**State space is species keyed by skipped positions and mismatch count.**
+`simulate()` tracks `(frozenset[int], int)` — deleted positions and PO-for-PS
+sulfurization mismatch count — → mole fraction, exactly up to `max_deletions`
+and `max_mismatches` (both default 3). Anything beyond either cap is summed
+into `unresolved_fraction` rather than dropped, so `mass_balance` (species
+fractions + unresolved) always closes to 1.0. Any change to the population
+bookkeeping must preserve this invariant. Only the mismatch *count* is
+tracked, not which linkages mismatched — count is what drives charge and
+hydrophobicity (and therefore chromatographic behaviour), while tracking
+positions would multiply the state space by `2^(n_ps)` for no resolvable
+benefit.
 
 **The capping/deletion mechanism is the point of the model, and is
 tested as an analytic invariant** (`tests/test_synthesis.py`,
@@ -83,12 +90,18 @@ n-mer carries n−1 phosphates. This is pinned by
 nusinersen end-to-end mass check — do not "fix" the phosphate count without
 re-deriving against those tests.
 
-**Sulfurization is an independent marginal, not joint with the deletion
-state** (`SynthesisResult.expected_po_mismatches`,
-`fully_sulfurized_fraction`, `po_mismatch_distribution`) — this is a known,
-documented approximation in v0.1, not an oversight. Folding it into the joint
-population is the first v0.2 item; don't silently "improve" it without
-updating the README's "Known gap" section and roadmap to match.
+**Sulfurization is tracked jointly with the deletion state**, not as an
+independent marginal — each species carries a `mismatches` count, and
+`Species.mass` is corrected by `mismatches * PS_DELTA` (base-independent, so
+the count alone is enough; see chemistry.py's `PS_DELTA`).
+`SynthesisResult.po_mismatch_distribution()` derives its histogram from
+`self.species` rather than a closed-form binomial, and — like
+`full_length_fraction` etc. — can undercount when mismatch-cap or
+deletion-cap overflow lands population in `unresolved_fraction`; only
+`mass_balance` is guaranteed to equal 1.0. There is no
+`expected_po_mismatches` / `fully_sulfurized_fraction` anymore — both were
+the old independent-marginal closed form and were removed when this joint
+tracking was added.
 
 ## Parameter status (read before touching defaults)
 
