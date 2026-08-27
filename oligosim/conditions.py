@@ -31,6 +31,17 @@ class ProcessConditions:
         Fraction of available 5'-OH that couples in a cycle. The single most
         important parameter: a 20-mer at 0.99 gives a very different crude
         profile than the same sequence at 0.995.
+    detritylation_efficiency
+        Fraction of active chains that successfully deblock (expose a free
+        5'-OH) each cycle. A chain that fails to deblock cannot couple, and
+        -- unlike a coupling failure -- cannot be capped either, since
+        capping acetylates free hydroxyls; it becomes a deletion sequence
+        regardless of capping efficiency. Defaults to 1.0 (perfect
+        detritylation, matching prior behaviour). Note that trityl-monitoring
+        data from a real synthesizer typically reports the *combined*
+        deblock-and-couple fraction per cycle, not detritylation and
+        coupling separately -- decomposing a measured value into this and
+        `coupling_efficiency` needs an independent detritylation assay.
     capping_efficiency
         Fraction of *failed* chains acetylated and removed from the growing
         population. Capping does not improve yield; it converts would-be
@@ -47,20 +58,28 @@ class ProcessConditions:
     coupling_overrides
         Explicit per-position coupling efficiency, keyed by 1-based synthesis
         position (the position being *added*, so keys run 2..n).
+    detritylation_overrides
+        Explicit per-position detritylation efficiency, keyed the same way
+        as `coupling_overrides`.
     """
 
     coupling_efficiency: float = 0.992
+    detritylation_efficiency: float = 1.0
     capping_efficiency: float = 0.95
     sulfurization_efficiency: float = 0.995
     apply_sugar_reactivity: bool = False
     coupling_overrides: Mapping[int, float] = field(default_factory=dict)
+    detritylation_overrides: Mapping[int, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _check_fraction("coupling_efficiency", self.coupling_efficiency)
+        _check_fraction("detritylation_efficiency", self.detritylation_efficiency)
         _check_fraction("capping_efficiency", self.capping_efficiency)
         _check_fraction("sulfurization_efficiency", self.sulfurization_efficiency)
         for pos, val in self.coupling_overrides.items():
             _check_fraction(f"coupling_overrides[{pos}]", val)
+        for pos, val in self.detritylation_overrides.items():
+            _check_fraction(f"detritylation_overrides[{pos}]", val)
 
     def coupling_at(self, position: int, oligo: Oligo) -> float:
         """Effective coupling efficiency for the cycle that adds `position`."""
@@ -70,6 +89,14 @@ class ProcessConditions:
         if self.apply_sugar_reactivity:
             eff *= oligo.residue_at(position).relative_reactivity
         return min(eff, 1.0)
+
+    def detritylation_at(self, position: int, oligo: Oligo) -> float:
+        """Effective detritylation efficiency for the cycle that adds
+        `position`. Mirrors `coupling_at()`; `oligo` is accepted for
+        interface symmetry, not currently used in the fallback."""
+        if position in self.detritylation_overrides:
+            return self.detritylation_overrides[position]
+        return self.detritylation_efficiency
 
     def n_ps_linkages(self, oligo: Oligo) -> int:
         """Count PS linkages formed during synthesis.

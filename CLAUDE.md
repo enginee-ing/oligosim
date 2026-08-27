@@ -12,10 +12,11 @@ scalar. Pure Python, standard library only for the core package; `numpy`/`matplo
 `jupyter` are notebook-only extras.
 
 Status: v0.2.dev0. v0.1's engine is implemented and tested; the joint
-sulfurization state (v0.2's first item) has landed, the rest of v0.2
-(depurination, n+1 insertions, cleavage/deprotection losses) is still open.
-**No kinetic parameter in this repository is calibrated** — see "Parameter
-status" below before changing or adding any default value.
+sulfurization state and incomplete detritylation (both v0.2 items) have
+landed, the rest of v0.2 (depurination, n+1 insertions, cleavage/
+deprotection losses) is still open. **No kinetic parameter in this
+repository is calibrated** — see "Parameter status" below before changing
+or adding any default value.
 
 ## Commands
 
@@ -36,11 +37,11 @@ Three modules, each with a single responsibility, wired together by `simulate()`
 - **`oligosim/chemistry.py`** — `Residue` (base + 2' sugar + 3' linkage) and
   `Oligo` (an ordered chain of residues). Masses are computed from elemental
   composition, not tabulated, so they're independently checkable.
-- **`oligosim/conditions.py`** — `ProcessConditions`: per-cycle coupling/capping/
-  sulfurization efficiencies, with optional per-position overrides. All access
-  to coupling efficiency goes through `coupling_at()` so that a future `amidite`
-  module (v0.5) can derive it from raw-material quality attributes without
-  touching the engine.
+- **`oligosim/conditions.py`** — `ProcessConditions`: per-cycle detritylation/
+  coupling/capping/sulfurization efficiencies, with optional per-position
+  overrides. All access to coupling efficiency goes through `coupling_at()` so
+  that a future `amidite` module (v0.5) can derive it from raw-material
+  quality attributes without touching the engine.
 - **`oligosim/synthesis.py`** — `simulate()`: propagates the support-bound
   population cycle by cycle and resolves it into `Species` by failure pattern.
   Returns a `SynthesisResult`.
@@ -102,6 +103,19 @@ deletion-cap overflow lands population in `unresolved_fraction`; only
 `expected_po_mismatches` / `fully_sulfurized_fraction` anymore — both were
 the old independent-marginal closed form and were removed when this joint
 tracking was added.
+
+**Detritylation gating is approximate for the already-deleted
+sub-population.** `simulate()` applies the `(1 - detritylation_efficiency)`
+deblock-failure gate to the *whole* `active[(deleted, mm)]` bucket every
+cycle, but a chain that already escaped capping in an earlier cycle has a
+free 5'-OH from that failure and doesn't need to deblock again — only a
+chain coming off a successful coupling is genuinely DMT-on. This slightly
+over-gates the already-deleted sub-population (a small over-count of
+`deletion_fraction`). It does not affect `correct_product_fraction`, since
+every chain on that path came from an unbroken run of successful couplings
+and so is always DMT-on at cycle start. Fixing it properly means splitting
+the active population into DMT-on/DMT-off buckets (2x state, not
+exponential) — not done yet; see the module docstring for the same note.
 
 ## Parameter status (read before touching defaults)
 

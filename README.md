@@ -5,9 +5,10 @@ sequence, its modification pattern, and process conditions, it predicts the
 **distribution of species** in the crude product — not just a yield number.
 
 > **Status: v0.2.dev0.** v0.1's engine is implemented and tested; the joint
-> sulfurization state, the first v0.2 item, has landed ahead of the rest of
-> v0.2. Kinetic parameters are placeholders, not calibrated values. See
-> [Parameter status](#parameter-status) before using any output quantitatively.
+> sulfurization state and incomplete detritylation, the first two v0.2 items,
+> have landed ahead of the rest of v0.2. Kinetic parameters are placeholders,
+> not calibrated values. See [Parameter status](#parameter-status) before
+> using any output quantitatively.
 
 ## The problem
 
@@ -34,19 +35,28 @@ attributed to the cycle that produced them.
 
 Per cycle *i*:
 
-1. **Detritylation** exposes the 5'-OH of every active chain.
-2. **Coupling** extends a fraction `c_i`. The rest keep a free 5'-OH.
-3. **Capping** acetylates a fraction `k_i` of those failures, removing them
-   permanently as **truncations**.
-4. Failures that **escape capping** stay active and couple in a later cycle,
-   becoming **deletion sequences** — full-length-minus-one, missing an internal
+1. **Detritylation** deblocks a fraction `d_i` of active chains, exposing a
+   free 5'-OH; the rest stay DMT-protected. A chain that fails to deblock
+   can't couple this cycle, and — critically — can't be capped either, since
+   capping acetylates free hydroxyls. It becomes a **deletion sequence**
+   unconditionally: a second route to that outcome, and one capping
+   efficiency has no purchase on at all.
+2. **Coupling** extends a fraction `c_i` of the chains that did deblock. The
+   rest keep a free 5'-OH.
+3. **Capping** acetylates a fraction `k_i` of those coupling failures,
+   removing them permanently as **truncations**.
+4. Coupling failures that **escape capping** stay active and couple in a
+   later cycle, becoming **deletion sequences** by the same outcome as an
+   ordinary failed coupling — full-length-minus-one, missing an internal
    residue.
 
-Step 4 is why capping exists. Capping does not improve yield; the full-length
-fraction is `prod(c_i)` regardless of capping efficiency. What capping does is
-convert would-be deletions into truncations, trading a hard separation problem
-for an easy one. The model reproduces this exactly, and it is enforced as a
-test invariant.
+Steps 1 and 4 are why capping only gets you so far. Capping does not improve
+yield; the correct-product fraction is `prod(d_i * c_i) * s^n_ps` (folding in
+sulfurization) regardless of capping efficiency. What capping does is convert
+coupling failures that *did* deblock into truncations instead of deletions,
+trading a hard separation problem for an easy one — it has no effect on chains
+that never deblocked in the first place. The model reproduces this exactly,
+and it is enforced as a test invariant.
 
 ## Quick start
 
@@ -70,18 +80,20 @@ print(result.summary())
 ```
 
 ```
-Oligo            : TCACTTTCATAATGCTGG [2'-MOE, PS]  (n=18)
-Couplings        : 17
+Oligo                         : TCACTTTCATAATGCTGG [2'-MOE, PS]  (n=18)
+Couplings                     : 17
 
-Full-length (FLP): 87.2364%
-  naive c^(n-1)  : 87.2365%
-Deletions        :  0.5999%
-Truncations      : 12.1635%
-Mass balance     :  1.0000000000
+Correct product (FLP)         : 80.1108%
+Correct length (any backbone) : 87.2364%
+  naive c^(n-1)               : 87.2365%
+Deletions                     : 0.5999%
+Truncations                   : 12.1635%
+Unresolved                    : 0.0001%  (>3 deletions)
+Mass balance                  : 1.0000000000
 
-PS linkages      : 17
-Fully sulfurized : 92.3643%
-E[PO mismatches] :  0.0794  (resolved to 3)
+PS linkages                   : 17
+Fully sulfurized (of full-length): 91.8318%
+E[PO mismatches]              : 0.0794  (resolved to 3)
 ```
 
 Attribute impurity to the cycle that caused it:
@@ -127,22 +139,20 @@ the 17-fold sodium salt, matching the cited value for nusinersen sodium.
 
 For an 18-mer 2'-OMe phosphorothioate oligonucleotide, published work on
 membrane-enabled liquid-phase synthesis reports crude purity around **72%**.
-This model predicts about **87%** full-length at 99.2% coupling.
+This model predicts **80.1%** correct product (right length, correctly
+sulfurized backbone) at 99.2% coupling — down from the 87.2% you'd get by
+checking length alone, since a genuinely correct molecule needs both. Folding
+PO-for-PS sulfurization shortfall into the joint population state closed
+roughly half the ~15 point gap to the published figure.
 
-The ~15 point difference is not a bug. It is the set of impurity classes not
-yet modelled:
+What remains, ~8 points, is the set of impurity classes still not modelled:
 
 | Missing | Effect |
 |---|---|
 | Depurination | Acid-catalysed, dA-dominated, accumulates with cycle count. |
 | Cyanoethyl adducts | Acrylonitrile released during deprotection is a Michael acceptor; adducts form preferentially on thymine. |
-| n+1 insertions | From premature detritylation. |
+| n+1 insertions | From *premature* detritylation of the incoming amidite — a different failure mode from *incomplete* detritylation, now modelled as a second, capping-immune route to deletions. |
 | Cleavage/deprotection losses | Not modelled. |
-
-PO-for-PS sulfurization shortfall is folded into the joint population (species
-carry a mismatch count alongside their deletion state), so it is no longer on
-this list — at 99.5% sulfurization over 17 PS linkages, ~92% of chains are
-fully sulfurized.
 
 ## Notebooks
 
@@ -193,7 +203,7 @@ model, and none of them treat **amidite quality attributes** as inputs.
 | Version | Scope |
 |---|---|
 | **v0.1** | Positional failure propagation; modification-aware chemistry; mass assignment. ✅ |
-| v0.2 | Joint sulfurization state ✅. Depurination, n+1 insertions, cleavage/deprotection losses still open. 🚧 |
+| v0.2 | Joint sulfurization state ✅. Incomplete detritylation ✅. Depurination, n+1 insertions, cleavage/deprotection losses still open. 🚧 |
 | v0.3 | Full predicted mass spectrum with isotope envelopes. |
 | v0.4 | Chromatography: retention model, resolution, pool cut points, purity/yield trade-off curve. |
 | v0.5 | `amidite` module — derive per-cycle coupling efficiency from water content, ³¹P purity, free acid, related substances, activator and excess. Inverts into spec setting. |

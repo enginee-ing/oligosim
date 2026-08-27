@@ -100,15 +100,20 @@ def test_mixed_case_and_methylcytosine_parsing():
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("capping", [0.0, 0.5, 0.95, 1.0])
 def test_full_length_equals_product_of_coupling_regardless_of_capping(capping):
-    """The central invariant. FLP requires success at every cycle."""
+    """The central invariant. FLP requires successful detritylation and
+    coupling at every cycle."""
     oligo = Oligo.from_string("ACGTACGTACGTACGTACGT")  # 20-mer, 19 couplings
-    c = 0.99
+    c, d = 0.99, 0.995
     result = simulate(
         oligo,
-        ProcessConditions(coupling_efficiency=c, capping_efficiency=capping),
+        ProcessConditions(
+            coupling_efficiency=c,
+            detritylation_efficiency=d,
+            capping_efficiency=capping,
+        ),
         max_deletions=19,
     )
-    assert result.full_length_fraction == pytest.approx(c**19, abs=1e-12)
+    assert result.full_length_fraction == pytest.approx((d * c) ** 19, abs=1e-12)
     assert result.full_length_fraction == pytest.approx(
         result.naive_full_length_fraction, abs=1e-12
     )
@@ -135,6 +140,23 @@ def test_perfect_capping_produces_no_deletions():
     )
     assert result.deletion_fraction == pytest.approx(0.0, abs=TOL)
     assert result.unresolved_fraction == pytest.approx(0.0, abs=TOL)
+
+
+def test_detritylation_failure_produces_deletions_capping_cannot_prevent():
+    """A chain that fails to deblock has no free 5'-OH for capping to act
+    on, so even perfect capping can't stop it from becoming a deletion --
+    unlike a coupling failure, which perfect capping catches completely
+    (see test_perfect_capping_produces_no_deletions)."""
+    oligo = Oligo.from_string("ACGTACGTACGT")
+    result = simulate(
+        oligo,
+        ProcessConditions(
+            coupling_efficiency=1.0,
+            detritylation_efficiency=0.98,
+            capping_efficiency=1.0,
+        ),
+    )
+    assert result.deletion_fraction > 0.0
 
 
 def test_no_capping_produces_no_truncations():
@@ -316,6 +338,26 @@ def test_correct_product_fraction_matches_closed_form_when_cap_not_binding():
     expected = c ** (n - 1) * s**n_ps
     assert result.correct_product_fraction == pytest.approx(expected, abs=1e-12)
     assert result.fully_sulfurized_fraction == pytest.approx(s**n_ps, abs=1e-12)
+
+
+def test_correct_product_fraction_matches_closed_form_with_detritylation():
+    """Same as above, but with imperfect detritylation folded in too: the
+    fully-correct-molecule fraction is prod(d_i * c_i) * s^n_ps, since a
+    chain must deblock, couple, and sulfurize correctly at every cycle."""
+    n, c, d, s = 10, 0.99, 0.995, 0.995
+    oligo = Oligo.from_string("A" * n, linkage=Linkage.PS)
+    n_ps = n - 1
+    result = simulate(
+        oligo,
+        ProcessConditions(
+            coupling_efficiency=c,
+            detritylation_efficiency=d,
+            sulfurization_efficiency=s,
+        ),
+        max_mismatches=n_ps,
+    )
+    expected = (d * c) ** (n - 1) * s**n_ps
+    assert result.correct_product_fraction == pytest.approx(expected, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------

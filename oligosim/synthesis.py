@@ -13,19 +13,31 @@ determines chromatographic behaviour downstream.
 
 The mechanism, per cycle i (adding residue i)
 ---------------------------------------------
-1. Detritylation exposes the 5'-OH of every active chain.
-2. Coupling: a fraction c_i of active chains extends. The rest retain a free
-   5'-OH.
-3. Capping: a fraction k_i of those failures is acetylated and leaves the
-   growing population permanently, becoming a TRUNCATION of length i-1-|D|.
-4. The failures that escape capping stay active with a free 5'-OH and couple in
-   a *later* cycle. They become DELETION sequences: full-length-minus-one but
-   missing an internal residue.
+1. Detritylation: a fraction d_i of active chains deblocks (exposes a free
+   5'-OH); the rest stay DMT-protected. A chain that fails to deblock cannot
+   couple this cycle, and -- critically -- cannot be capped either, since
+   capping acetylates free hydroxyls. It stays active with a deletion at
+   this position and gets another detritylation attempt next cycle.
+2. Coupling: of the chains that did deblock, a fraction c_i extends. The
+   rest retain a free 5'-OH.
+3. Capping: a fraction k_i of those coupling failures is acetylated and
+   leaves the growing population permanently, becoming a TRUNCATION of
+   length i-1-|D|.
+4. The coupling failures that escape capping stay active with a free 5'-OH
+   and couple in a *later* cycle. They become DELETION sequences, the same
+   outcome as a failed detritylation: full-length-minus-one but missing an
+   internal residue.
+
+Per cycle: P(extend) = d_i * c_i, P(deletion at i) = (1 - d_i) +
+d_i * (1 - c_i) * (1 - k_i), P(truncate) = d_i * (1 - c_i) * k_i.
 
 That distinction is the reason capping exists. A truncation is short and elutes
 far from product. A deletion sequence differs from product by one internal
 residue and co-elutes closely, which is why (1 - capping efficiency) drives
-crude purity harder than its magnitude suggests.
+crude purity harder than its magnitude suggests. Incomplete detritylation is a
+second route to the same deletion outcome, and one capping efficiency cannot
+touch at all: a failed detritylation leaves no free hydroxyl for capping to
+act on, so even perfect capping no longer guarantees zero deletions.
 
 Sulfurization shortfall -- the chance a phosphorothioate (PS) linkage ends up
 as a plain phosphodiester (PO) -- is tracked jointly with the deletion state:
@@ -36,22 +48,34 @@ charge and hydrophobicity (and therefore chromatographic behaviour), while
 tracking positions would multiply the state space by 2^(n_ps) for no
 resolvable benefit.
 
-One consequence: `full_length_fraction == prod(c_i)` exactly (the invariant
-tested in test_synthesis.py) only for PO oligos, or for PS oligos where
-`max_mismatches` never binds. A chain that stays on the zero-deletion branch
-but racks up more than `max_mismatches` PS/PO mismatches is shunted into
-`unresolved_fraction`, which strips its "full-length" identity along with its
-mismatch state -- there's no way to know it was deletion-free once it's in
+One consequence: `full_length_fraction == prod(d_i * c_i)` exactly (the
+invariant tested in test_synthesis.py) only for PO oligos, or for PS oligos
+where `max_mismatches` never binds. A chain that stays on the zero-deletion
+branch but racks up more than `max_mismatches` PS/PO mismatches is shunted
+into `unresolved_fraction`, which strips its "full-length" identity along with
+its mismatch state -- there's no way to know it was deletion-free once it's in
 that bucket. In practice this is a small effect (see `correct_product_fraction`
 vs. `naive_full_length_fraction` on a real PS oligo), but it means
-`full_length_fraction` for a PS oligo is a lower bound on `prod(c_i)`, not an
-exact equality.
+`full_length_fraction` for a PS oligo is a lower bound on `prod(d_i * c_i)`,
+not an exact equality.
 
 Approximations in v0.1 (each is a named v0.2+ item)
 ---------------------------------------------------
 * Depurination is not modelled. It is acid-catalysed, dA-dominated, and
   accumulates with cycle count.
-* n+1 insertions from premature detritylation are not modelled.
+* n+1 insertions from *premature* detritylation are not modelled -- a
+  different failure mode from the *incomplete* detritylation modelled here
+  (which produces a deletion, not an extra residue).
+* Detritylation is gated on the *whole* active population each cycle, but a
+  chain that already escaped capping in an earlier cycle already has a free
+  5'-OH from that failure -- it doesn't need to deblock again; only a chain
+  coming off a successful coupling is genuinely DMT-on. This slightly
+  over-gates that already-deleted sub-population (a small over-count of
+  `deletion_fraction`). It does not affect `correct_product_fraction`: every
+  chain on that path came from an unbroken run of successful couplings, so
+  it is always DMT-on at the start of every cycle. Fixing it properly means
+  splitting the active population into DMT-on and DMT-off buckets (a 2x
+  state multiplier, not exponential) -- not done in v0.1.
 * Cleavage and deprotection losses are not modelled.
 """
 
@@ -142,8 +166,8 @@ class SynthesisResult:
 
         Includes PS/PO mismatches -- a chain with the correct sequence but a
         sulfurization defect still counts here, unlike
-        `correct_product_fraction`. Equal to `prod(c_i)` for PO oligos, or
-        for PS oligos where `max_mismatches` doesn't bind (see module
+        `correct_product_fraction`. Equal to `prod(d_i * c_i)` for PO oligos,
+        or for PS oligos where `max_mismatches` doesn't bind (see module
         docstring); otherwise a lower bound on it.
         """
         return sum(s.fraction for s in self.species if not s.deleted and not s.truncated)
@@ -159,9 +183,11 @@ class SynthesisResult:
 
     @property
     def naive_full_length_fraction(self) -> float:
-        """The spreadsheet estimate, for comparison: prod(c_i) over cycles."""
+        """The spreadsheet estimate, for comparison: prod(d_i * c_i) over
+        cycles -- a chain must both deblock and couple at every cycle."""
         value = 1.0
         for pos in range(2, self.oligo.n + 1):
+            value *= self.conditions.detritylation_at(pos, self.oligo)
             value *= self.conditions.coupling_at(pos, self.oligo)
         return value
 
@@ -309,6 +335,7 @@ def simulate(
 
     for position in range(2, oligo.n + 1):
         c = conditions.coupling_at(position, oligo)
+        d = conditions.detritylation_at(position, oligo)
         k = conditions.capping_efficiency
         s = conditions.sulfurization_efficiency
         is_ps = oligo.residue_at(position).linkage is Linkage.PS
@@ -318,9 +345,18 @@ def simulate(
             if amount == 0.0:
                 continue
 
+            # 0. Detritylation: a (1-d) fraction stays DMT-blocked this
+            # cycle. It cannot couple, and -- critically -- cannot be capped
+            # either, since capping acetylates free hydroxyls. It goes
+            # straight into the same "gains a deletion here, stays active"
+            # bucket that an uncapped coupling failure uses (step 3 below),
+            # and gets another detritylation attempt next cycle.
+            deletion_mass = amount * (1.0 - d)
+            deblocked = amount * d
+
             # 1. Coupled: extends, deletion set unchanged. If this linkage is
             # a PS position, split further by sulfurization shortfall.
-            coupled = amount * c
+            coupled = deblocked * c
             if coupled > 0.0:
                 if is_ps:
                     nxt[(deleted, mm)] += coupled * s
@@ -334,12 +370,12 @@ def simulate(
                 else:
                     nxt[(deleted, mm)] += coupled
 
-            failed = amount * (1.0 - c)
-            if failed == 0.0:
-                continue
+            failed = deblocked * (1.0 - c)
 
             # 2. Capped: leaves the population as a truncation. No new
             # linkage formed this cycle, so mismatch count carries over.
+            # Only a chain that deblocked and then failed to couple has a
+            # free hydroxyl for capping to act on.
             capped = failed * k
             if capped > 0.0:
                 length = (position - 1) - len(deleted)
@@ -356,14 +392,16 @@ def simulate(
                     )
                 )
 
-            # 3. Escaped capping: stays active, gains a deletion here.
-            escaped = failed * (1.0 - k)
-            if escaped > 0.0:
+            # 3. Gains a deletion here and stays active: either it never
+            # deblocked (step 0), or it deblocked, failed to couple, and
+            # escaped capping.
+            deletion_mass += failed * (1.0 - k)
+            if deletion_mass > 0.0:
                 new_deleted = deleted | {position}
                 if len(new_deleted) > max_deletions:
-                    unresolved += escaped
+                    unresolved += deletion_mass
                 else:
-                    nxt[(frozenset(new_deleted), mm)] += escaped
+                    nxt[(frozenset(new_deleted), mm)] += deletion_mass
 
         active = dict(nxt)
 

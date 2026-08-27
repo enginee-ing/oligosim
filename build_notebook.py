@@ -25,12 +25,14 @@ But it answers only one question, and not the one that decides whether a batch
 meets spec. Two crude mixtures can both be 87% full-length and behave completely
 differently in purification. What matters is *what the other 13% is made of*.
 
-This notebook uses `oligosim` to show three things the scalar estimate cannot:
+This notebook uses `oligosim` to show four things the scalar estimate cannot:
 
 1. How steeply the impurity burden grows as coupling efficiency drops
 2. Why length is punishing, and where it becomes the dominant term
 3. **That capping does not improve yield at all** — it converts a hard separation
-   problem into an easy one, which is a different and more useful thing""")
+   problem into an easy one, which is a different and more useful thing
+4. **That capping and detritylation are not interchangeable "process health"
+   dials** — one relocates impurity, the other destroys product outright""")
 
 code("""import matplotlib.pyplot as plt
 import numpy as np
@@ -282,6 +284,79 @@ Trityl monitoring on the synthesizer gives per-cycle coupling efficiency; this
 converts that into a predicted impurity profile and points at the offending
 cycle.""")
 
+md("""## 5. Detritylation vs. capping: one relocates impurity, the other destroys it
+
+Both detritylation and capping efficiency sit in the 0.99-1.0 neighbourhood in
+a well-run synthesis, so it's tempting to treat them as interchangeable
+"process is running well" dials. They are not. Sweep each independently,
+holding everything else fixed, and plot the *same* quantity against both --
+correct product, the fully correct molecule from section 1.""")
+
+code("""cappings2 = np.linspace(0.0, 1.0, 40)
+detrit2 = np.linspace(0.99, 1.0, 40)
+
+# Capping panel: detritylation held fixed at a representative, non-perfect
+# value (0.998) so the line isn't trivially flat because nothing is
+# happening -- there IS a real detritylation-driven loss baked in here,
+# it just doesn't move with capping.
+cap_flp = [
+    simulate(NUSINERSEN, ProcessConditions(coupling_efficiency=0.992,
+                                           detritylation_efficiency=0.998,
+                                           capping_efficiency=k),
+             max_deletions=6).correct_product_fraction * 100
+    for k in cappings2
+]
+
+# Detritylation panel: capping held fixed. Capping efficiency doesn't
+# matter here either -- it has no purchase on a chain that never deblocked.
+det_flp = [
+    simulate(NUSINERSEN, ProcessConditions(coupling_efficiency=0.992,
+                                           detritylation_efficiency=d,
+                                           capping_efficiency=0.95)).correct_product_fraction * 100
+    for d in detrit2
+]
+
+# Same y-axis on both panels: the visual contrast IS the finding.
+ylo = min(min(cap_flp), min(det_flp)) - 2
+yhi = max(max(cap_flp), max(det_flp)) + 2
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+
+ax1.plot(cappings2 * 100, cap_flp, lw=2.5, color="#1b5e20")
+ax1.set_ylim(ylo, yhi)
+ax1.set_xlabel("capping efficiency (%)")
+ax1.set_ylabel("correct product (%)")
+ax1.set_title("vs. capping (0-100%): flat")
+
+ax2.plot(detrit2 * 100, det_flp, lw=2.5, color="#c62828")
+ax2.set_ylim(ylo, yhi)
+ax2.set_xlabel("detritylation efficiency (%)")
+ax2.set_ylabel("correct product (%)")
+ax2.set_title("vs. detritylation (99-100%): sloped")
+
+plt.tight_layout()
+plt.show()
+
+print(f"capping        0% -> 100%  (detritylation=0.998): "
+      f"{cap_flp[0]:.4f}% -> {cap_flp[-1]:.4f}%")
+print(f"detritylation 99% -> 100%  (capping=0.95):         "
+      f"{det_flp[0]:.4f}% -> {det_flp[-1]:.4f}%")""")
+
+md("""The contrast is the entire point of this change. The left panel repeats
+section 3's result over the *full* capping range: correct product doesn't move
+a measurable amount, because capping only decides whether a coupling failure
+becomes a truncation or a deletion -- either way, that chain was never going to
+be correct product. The right panel is a completely different shape: correct
+product falls by about 12.6 points over a detritylation range of just *one
+percentage point* (99% to 100%), because every failed deblock is an
+unconditional, capping-immune deletion.
+
+Capping efficiency **relocates** impurity between classes without touching
+yield. Detritylation efficiency **destroys** product outright, and no amount
+of capping can buy it back. If a batch is missing spec and coupling looks fine
+on trityl monitoring, the process step to interrogate is detritylation, not
+capping.""")
+
 md("""## What this model does not yet include
 
 The predictions above are optimistic, and it is worth being explicit about by how
@@ -300,7 +375,7 @@ closed roughly half the ~15 point gap to the published figure. What remains,
 |---|---|
 | Depurination | Acid-catalysed, dA-dominated, accumulates with cycle count. |
 | Cyanoethyl adducts | Acrylonitrile released during deprotection is a Michael acceptor; adducts form preferentially on thymine. |
-| n+1 insertions | From premature detritylation of the incoming amidite. |
+| n+1 insertions | From *premature* detritylation of the incoming amidite -- a different failure mode from *incomplete* detritylation (section 5), which is now modelled as a second, capping-immune route to deletions. |
 | Cleavage/deprotection losses | Not modelled at all. |
 
 **Every kinetic parameter used above is a placeholder**, not a calibrated value.
