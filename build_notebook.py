@@ -117,13 +117,17 @@ colors = ["#1b5e20", "#2e7d32", "#f9a825", "#c62828"]
 fig, ax = plt.subplots()
 for n, color in zip(lengths, colors):
     oligo = Oligo.from_string("A" * n, sugar=Sugar.MOE, linkage=Linkage.PS)
-    # full-length fraction is the zero-deletion species, so it is exact at
-    # any max_deletions. Tracking shallowly here is a ~1000x speedup on the
-    # 80-mer with no loss of accuracy in what this chart plots.
+    # correct_product_fraction requires deleted == empty and mismatches == 0,
+    # both computed exactly regardless of max_deletions -- neither cap can
+    # strip mass from that specific slice, since deletion-cap overflow only
+    # touches branches that just *gained* a deletion, and the zero-mismatch
+    # path never risks the mismatch cap either. So max_deletions=0 is free
+    # accuracy here: a ~1000x speedup on the 80-mer with no loss of accuracy
+    # in what this chart plots.
     ys = [
         simulate(oligo, ProcessConditions(coupling_efficiency=c,
                                           capping_efficiency=0.95),
-                 max_deletions=0).full_length_fraction * 100
+                 max_deletions=0).correct_product_fraction * 100
         for c in couplings
     ]
     ax.plot(couplings * 100, ys, lw=2, color=color, label=f"{n}-mer")
@@ -131,7 +135,7 @@ for n, color in zip(lengths, colors):
 ax.axvline(99.2, ls="--", lw=1, color="grey")
 ax.text(99.21, 8, "typical process\\ntarget", fontsize=8, color="grey")
 ax.set_xlabel("stepwise coupling efficiency (%)")
-ax.set_ylabel("full-length product (%)")
+ax.set_ylabel("correct product (%)")
 ax.set_title("Length amplifies every fractional loss")
 ax.legend()
 plt.tight_layout()
@@ -143,12 +147,19 @@ for n in lengths:
     r = simulate(oligo, ProcessConditions(coupling_efficiency=0.992,
                                           capping_efficiency=0.95),
                  max_deletions=1)
-    print(f"  {n:2d}-mer   FLP={r.full_length_fraction:7.2%}   "
+    print(f"  {n:2d}-mer   FLP={r.correct_product_fraction:7.2%}   "
           f"single deletions={r.deletion_fraction:6.2%}")""")
 
-md("""At a fixed 99.2% coupling, full-length product falls from about 87% at 18
-residues to about 53% at 80. Nothing about the chemistry changed — only the
-number of chances to fail.
+md("""At a fixed 99.2% coupling, correct product falls from about 80% at 18
+residues to about 36% at 80. Nothing about the coupling chemistry changed —
+only the number of chances to fail, and now that failure includes both a
+missed coupling *and* a missed sulfurization at every one of the n-1 cycles.
+
+The length effect is steeper than the coupling term alone suggests, because a
+PS oligo needs $s^{\\,n-1}$ correct sulfurizations on top of $\\prod c_i$: at
+99.5% sulfurization, an 80-mer's sulfurization term alone is
+$0.995^{79} \\approx 67\\%$, stacking with the coupling term instead of just
+riding along beside it.
 
 This is the quantitative reason therapeutic oligonucleotides cluster in the
 18–25mer range, and the reason longer constructs demand either much better
@@ -157,9 +168,10 @@ chemistry or a different manufacturing route entirely.""")
 md("""**A note on cost.** Exact tracking to $k$ deletions on an $n$-mer needs
 $\\sum_{j=0}^{k}\\binom{n-1}{j}$ states, which grows fast: an 18-mer to 3 deletions is
 834 states and runs in milliseconds, but an 80-mer is 82,240 states and takes
-close to a minute. The chart above sidesteps this — full-length product is the
-zero-deletion species, so it is exact at `max_deletions=0`. Deep tracking is only
-needed when the impurity *breakdown* matters.""")
+close to a minute. The chart above sidesteps this — correct_product_fraction
+requires the zero-deletion, zero-mismatch species specifically, and neither
+cap can strip mass from that exact slice, so it's exact at `max_deletions=0`.
+Deep tracking is only needed when the impurity *breakdown* matters.""")
 
 md("""## 3. Capping: the result worth looking at twice
 
@@ -257,7 +269,7 @@ ax.set_xticks(positions)
 plt.tight_layout()
 plt.show()
 
-print(f"full-length product: {r.full_length_fraction:.2%}")
+print(f"correct product: {r.correct_product_fraction:.2%}")
 print(f"deletion at position 9: {by_pos[9]:.4%}")
 print(f"deletion at a normal position: {by_pos[8]:.4%}")
 print(f"\\nratio: {by_pos[9] / by_pos[8]:.1f}x")""")
