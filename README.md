@@ -120,6 +120,8 @@ Mass balance                  : 1.0000000000
 PS linkages                   : 17
 Fully sulfurized (of full-length): 91.8318%
 E[PO mismatches]              : 0.0794  (resolved to 3)
+
+... (top species table omitted)
 ```
 
 Attribute impurity to the cycle that caused it:
@@ -183,10 +185,21 @@ What remains, ~8 points, is the set of impurity classes still not modelled:
 ## Notebooks
 
 [`notebooks/01_sensitivity_analysis.ipynb`](notebooks/01_sensitivity_analysis.ipynb)
-— what the impurity profile depends on. Coupling efficiency, length, capping, and
-per-cycle attribution, with the charts rendered inline. The capping result is the
-one worth reading: full-length product is flat at 87.237% across the entire
-capping range while deletions and truncations trade off perfectly.
+— what the impurity profile depends on, with the charts rendered inline.
+
+The strongest result is §5, detritylation vs. capping, swept over their full
+ranges on the same axes: capping efficiency doesn't move correct product at
+all (flat at 77.4%, holding a representative detritylation loss fixed), while
+detritylation efficiency falls by about 12.6 points over a range of just
+*one* percentage point (99% to 100%, correct product 67.5% → 80.1%). Capping
+only relocates impurity between truncations and deletions; a failed
+detritylation is an unconditional, capping-immune deletion that destroys
+product outright — no amount of capping buys it back.
+
+The rest of the notebook covers coupling efficiency, length, capping alone
+(§3: correct product is flat at 80.111% across the *entire* capping range,
+not approximately — exactly, since capping never touches a chain that was
+already going to be correct product), and per-cycle attribution.
 
 ## Parameter status
 
