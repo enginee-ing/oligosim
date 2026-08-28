@@ -42,6 +42,14 @@ HPO3 = _M_H + _M_P + 3 * _M_O
 # Mass difference for replacing one linkage oxygen with sulfur (PO -> PS).
 PS_DELTA = _M_S - _M_O
 
+# Deamination: C -> U and 5-methyl-C -> T are both a net loss of NH and
+# gain of O (both bases' elemental formulas above give the identical
+# delta). Monoisotopic: O - N - H = 0.98402 Da. Sources quoting +0.9848 Da
+# are using AVERAGE atomic masses (~15.9994 O, ~14.0067 N, ~1.00794 H),
+# not monoisotopic -- don't conflate the two against literature/vendor
+# software.
+DEAMINATION_DELTA = _M_O - _M_N - _M_H
+
 
 class Base(str, Enum):
     """Nucleobase. `T` is thymine; `U` is uracil; `mC` is 5-methylcytosine."""

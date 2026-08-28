@@ -11,12 +11,21 @@ Quick start
 
 from .chemistry import Base, Linkage, Oligo, Residue, Sugar
 from .conditions import ProcessConditions
+from .deprotection import (
+    DeprotectedSpecies,
+    DeprotectionConditions,
+    DeprotectionResult,
+    deprotect,
+)
 from .synthesis import Species, SynthesisResult, simulate, state_space_size
 
 __version__ = "0.2.0.dev0"
 
 __all__ = [
     "Base",
+    "DeprotectedSpecies",
+    "DeprotectionConditions",
+    "DeprotectionResult",
     "Linkage",
     "Oligo",
     "ProcessConditions",
@@ -24,6 +33,7 @@ __all__ = [
     "Species",
     "Sugar",
     "SynthesisResult",
+    "deprotect",
     "simulate",
     "state_space_size",
     "__version__",
