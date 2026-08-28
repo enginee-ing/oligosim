@@ -4,11 +4,11 @@ A forward process model for solid-phase oligonucleotide synthesis. Given a
 sequence, its modification pattern, and process conditions, it predicts the
 **distribution of species** in the crude product — not just a yield number.
 
-> **Status: v0.2.dev0.** v0.1's engine is implemented and tested; the joint
-> sulfurization state and incomplete detritylation, the first two v0.2 items,
-> have landed ahead of the rest of v0.2. Kinetic parameters are placeholders,
-> not calibrated values. See [Parameter status](#parameter-status) before
-> using any output quantitatively.
+> **Status: v0.2.dev0.** v0.1's engine is implemented and tested; joint
+> sulfurization, incomplete detritylation, and deamination — the first three
+> v0.2 items — have landed ahead of the rest of v0.2. Kinetic parameters are
+> placeholders, not calibrated values. See
+> [Parameter status](#parameter-status) before using any output quantitatively.
 
 ## The problem
 
@@ -57,6 +57,32 @@ coupling failures that *did* deblock into truncations instead of deletions,
 trading a hard separation problem for an easy one — it has no effect on chains
 that never deblocked in the first place. The model reproduces this exactly,
 and it is enforced as a test invariant.
+
+**Deprotection is a separate, post-synthesis stage.** Everything above
+happens inside the cycle loop, tracked per synthesis cycle. Deprotection does
+not: it is base-catalysed, heat-accelerated hydrolysis during the ammonia
+deprotection step, applied once to the *finished* species distribution
+rather than folded into the cycle-by-cycle state. It deaminates cytosine (C)
+to uracil and 5-methylcytosine (mC) to thymine — literally thymine, the same
+base every unmodified position already carries, not an analogue.
+
+`deprotect()` expands each synthesis species into sub-species by deamination
+count, binomial over `deamination_probability_per_residue` (`p`) and that
+species' own count of eligible C/mC residues (`n_eligible`). `n_eligible` is
+computed **per species, not per oligo**: a deleted position that happened to
+carry a C or mC isn't present to deaminate, and a truncated species only
+carries residues up to its truncation point, so two species from the same
+oligo can have different eligible counts. Folding this into the invariant
+above:
+
+```
+correct product fraction = prod(d_i * c_i) * s^n_ps * (1 - p)^n_eligible
+```
+
+`deamination_probability_per_residue` defaults to 0.0 — a direct probability,
+not a time/temperature model, since no calibrated public rate constant
+exists for this reaction; a t/T model is future work pending a literature
+value.
 
 ## Quick start
 
@@ -151,8 +177,8 @@ What remains, ~8 points, is the set of impurity classes still not modelled:
 |---|---|
 | Depurination | Acid-catalysed, dA-dominated, accumulates with cycle count. |
 | Cyanoethyl adducts | Acrylonitrile released during deprotection is a Michael acceptor; adducts form preferentially on thymine. |
-| n+1 insertions | From *premature* detritylation of the incoming amidite — a different failure mode from *incomplete* detritylation, now modelled as a second, capping-immune route to deletions. |
-| Cleavage/deprotection losses | Not modelled. |
+| n+1 insertions | From *premature* detritylation of the incoming amidite — a different failure mode from *incomplete* detritylation, modelled as a second, capping-immune route to deletions. |
+| Cleavage losses | Physical yield loss during support cleavage — distinct from cytosine/5-methylcytosine deamination during the same deprotection step, which is now modelled (see "The mechanism"). |
 
 ## Notebooks
 
@@ -203,7 +229,7 @@ model, and none of them treat **amidite quality attributes** as inputs.
 | Version | Scope |
 |---|---|
 | **v0.1** | Positional failure propagation; modification-aware chemistry; mass assignment. ✅ |
-| v0.2 | Joint sulfurization state ✅. Incomplete detritylation ✅. Depurination, n+1 insertions, cleavage/deprotection losses still open. 🚧 |
+| v0.2 | Joint sulfurization state ✅. Incomplete detritylation ✅. Deamination ✅. Depurination, cyanoethyl adducts, n+1 insertions still open. 🚧 |
 | v0.3 | Full predicted mass spectrum with isotope envelopes. |
 | v0.4 | Chromatography: retention model, resolution, pool cut points, purity/yield trade-off curve. |
 | v0.5 | `amidite` module — derive per-cycle coupling efficiency from water content, ³¹P purity, free acid, related substances, activator and excess. Inverts into spec setting. |

@@ -11,12 +11,12 @@ deletions attributed to the cycle that caused them) rather than a single yield
 scalar. Pure Python, standard library only for the core package; `numpy`/`matplotlib`/
 `jupyter` are notebook-only extras.
 
-Status: v0.2.dev0. v0.1's engine is implemented and tested; the joint
-sulfurization state and incomplete detritylation (both v0.2 items) have
-landed, the rest of v0.2 (depurination, n+1 insertions, cleavage/
-deprotection losses) is still open. **No kinetic parameter in this
-repository is calibrated** — see "Parameter status" below before changing
-or adding any default value.
+Status: v0.2.dev0. v0.1's engine is implemented and tested; joint
+sulfurization, incomplete detritylation, and deamination (three v0.2
+items) have landed, the rest of v0.2 (depurination, cyanoethyl adducts,
+n+1 insertions) is still open. **No kinetic parameter in this repository
+is calibrated** — see "Parameter status" below before changing or adding
+any default value.
 
 ## Commands
 
@@ -32,7 +32,8 @@ There is no separate lint/format config in this repo — match existing style.
 
 ## Architecture
 
-Three modules, each with a single responsibility, wired together by `simulate()`:
+Four modules, each with a single responsibility, wired together by
+`simulate()` and `deprotect()`:
 
 - **`oligosim/chemistry.py`** — `Residue` (base + 2' sugar + 3' linkage) and
   `Oligo` (an ordered chain of residues). Masses are computed from elemental
@@ -45,6 +46,12 @@ Three modules, each with a single responsibility, wired together by `simulate()`
 - **`oligosim/synthesis.py`** — `simulate()`: propagates the support-bound
   population cycle by cycle and resolves it into `Species` by failure pattern.
   Returns a `SynthesisResult`.
+- **`oligosim/deprotection.py`** — `deprotect()`: a post-synthesis stage that
+  expands a `SynthesisResult`'s species by base-modification event count
+  (deamination first; depurination and cyanoethyl adducts are the same
+  pattern, not yet added). Operates on the finished species distribution, not
+  the cycle loop — see "Key design decisions" below. Returns a
+  `DeprotectionResult`.
 
 ### Key design decisions to preserve
 
@@ -116,6 +123,20 @@ every chain on that path came from an unbroken run of successful couplings
 and so is always DMT-on at cycle start. Fixing it properly means splitting
 the active population into DMT-on/DMT-off buckets (2x state, not
 exponential) — not done yet; see the module docstring for the same note.
+
+**Deprotection is post-processing on the species distribution, not a
+state dimension in the cycle loop.** `deprotection.py`'s `deprotect()`
+takes a finished `SynthesisResult` and expands each `Species` into
+`DeprotectedSpecies` by deamination count, computed *after* `simulate()`
+has already resolved deletions/truncations/mismatches — it does not touch
+`simulate()`'s per-cycle state or its `(deleted, mismatches)` active-dict
+key. This is deliberate: deamination happens during the batch ammonia
+deprotection incubation, not per synthesis cycle, so there's no
+cycle-indexed timing to fold into the loop, and adding it there would be
+both chemically wrong and would multiply the tracked state for no reason.
+**Future deprotection-stage additions (depurination, cyanoethyl adducts)
+should follow the same pattern** — expand `deprotect()`'s post-processing,
+not extend `simulate()`'s cycle key.
 
 ## Parameter status (read before touching defaults)
 
